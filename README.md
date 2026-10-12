@@ -101,3 +101,20 @@ completed with "Success. No rows returned".
 `sql/test_chats.sql` — creates `test_chats` and inserts the 80 test-set rows:
 
 ![test_chats.sql run in the Supabase SQL Editor](docs/supabase_test_chats_sql_run.webp)
+
+### What exists in the Supabase project
+
+[`sql/verify_tables.sql`](sql/verify_tables.sql), run afterwards in the same
+project, shows all three tables exist and `test_chats` holds the full test set —
+80 rows, 30 routine and 10 handoff chats, matching the loader. `requests` and
+`handoffs` are empty until the agent starts saving reports.
+
+| table | rows |
+|---|---|
+| requests | 0 |
+| handoffs | 0 |
+| test_chats | 80 |
+| test_chats routine chats | 30 |
+| test_chats handoff chats | 10 |
+
+![verify_tables.sql results in Supabase](docs/supabase_tables.webp)
