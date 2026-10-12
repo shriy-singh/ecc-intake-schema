@@ -137,12 +137,26 @@ existing (empty) `handoffs` table:
 ![schema.sql re-run upgrading handoffs in Supabase](docs/supabase_handoffs_upgrade_run.webp)
 
 [`sql/verify_handoffs_columns.sql`](sql/verify_handoffs_columns.sql) then
-returned 10 columns. The screenshot shows the six packet columns added or
-checked by the upgrade — `trigger_rule`, `triggering_message`,
-`classification_attempts`, `fields_collected` (jsonb) and `created_at` are
-NOT NULL, and `request_type` is the only nullable column. The first four rows
-(`id`, `conversation_id`, `transcript`, `trigger_label`) are scrolled out of
-view, so the `transcript` → jsonb change is covered by the local Postgres
-upgrade test rather than this screenshot.
+returned 10 columns, shown across two screenshots. `transcript` and
+`fields_collected` are jsonb, and `request_type` is the only nullable column.
 
-![handoffs columns in Supabase](docs/supabase_handoffs_columns.webp)
+| column | type | nullable |
+|---|---|---|
+| id | bigint | NO |
+| conversation_id | text | NO |
+| transcript | jsonb | NO |
+| trigger_label | text | NO |
+| created_at | timestamp with time zone | NO |
+| trigger_rule | text | NO |
+| triggering_message | text | NO |
+| classification_attempts | integer | NO |
+| request_type | text | YES |
+| fields_collected | jsonb | NO |
+
+Rows 1–6 (`transcript` upgraded from text to jsonb):
+
+![handoffs columns 1-6 in Supabase](docs/supabase_handoffs_columns_top.webp)
+
+Rows 5–10 (the new packet columns):
+
+![handoffs columns 5-10 in Supabase](docs/supabase_handoffs_columns.webp)
