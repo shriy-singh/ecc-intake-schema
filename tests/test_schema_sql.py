@@ -16,6 +16,7 @@ from ecc_intake_schema.models import ROUTINE_REQUEST_MODELS
 
 psycopg = pytest.importorskip("psycopg")
 pgserver = pytest.importorskip("pgserver")
+from psycopg.types.json import Jsonb  # noqa: E402
 
 SQL_DIR = Path(__file__).resolve().parent.parent / "sql"
 TYPE_SPECIFIC_FIELDS = {
@@ -29,13 +30,18 @@ HANDOFF_IDS = sorted(cid for cid, t in CHATS.items() if t[0]["chat_label"] == "h
 
 
 @pytest.fixture(scope="session")
-def db(tmp_path_factory):
-    server = pgserver.get_server(tmp_path_factory.mktemp("pg"), cleanup_mode="stop")
+def server(tmp_path_factory):
+    srv = pgserver.get_server(tmp_path_factory.mktemp("pg"), cleanup_mode="stop")
+    yield srv
+    srv.cleanup()
+
+
+@pytest.fixture(scope="session")
+def db(server):
     with psycopg.connect(server.get_uri(), autocommit=True) as conn:
         conn.execute((SQL_DIR / "schema.sql").read_text(encoding="utf-8"))
         conn.execute((SQL_DIR / "test_chats.sql").read_text(encoding="utf-8"))
         yield conn
-    server.cleanup()
 
 
 @pytest.fixture
@@ -131,22 +137,129 @@ def test_unknown_request_type_rejected(conn):
     assert not _db_accepts(conn, _row("ECC-T-001") | {"request_type": "graffiti"})
 
 
-@pytest.mark.parametrize("chat_id", HANDOFF_IDS)
-def test_every_handoff_chat_saves(conn, chat_id):
+RULE_FOR_LABEL = {
+    "danger": "emergency_language",
+    "injury": "emergency_language",
+    "fire": "emergency_language",
+    "weapon": "emergency_language",
+    "person_in_distress": "emergency_language",
+    "asked_for_person": "asked_for_person",
+    "unclassified_after_two_tries": "cannot_classify",
+}
+
+
+def _packet(chat_id: str) -> dict:
+    """The §7 handoff packet for a handoff chat in the test set."""
     turns = CHATS[chat_id]
-    conn.execute(
-        "insert into public.handoffs (conversation_id, transcript, trigger_label) values (%s, %s, %s)",
-        (chat_id, "\n".join(t["resident_message"] for t in turns), turns[0]["expected_handoff_trigger"]),
-    )
+    label = turns[0]["expected_handoff_trigger"]
+    transcript = [{"role": "resident", "text": t["resident_message"], "sent_at": None} for t in turns]
+    return {
+        "conversation_id": chat_id,
+        "transcript": Jsonb(transcript),
+        "trigger_label": label,
+        "trigger_rule": RULE_FOR_LABEL[label],
+        "triggering_message": turns[-1]["resident_message"],
+        "classification_attempts": 2 if label == "unclassified_after_two_tries" else 0,
+        "request_type": None,
+        "fields_collected": Jsonb({}),
+    }
 
 
-def test_unknown_handoff_trigger_rejected(conn):
-    with pytest.raises(psycopg.errors.CheckViolation):
+def _handoff_accepted(conn, packet: dict) -> bool:
+    columns = ", ".join(packet)
+    placeholders = ", ".join(f"%({c})s" for c in packet)
+    try:
         with conn.transaction():
-            conn.execute(
-                "insert into public.handoffs (conversation_id, transcript, trigger_label) "
-                "values ('x', 'y', 'probably_fine')"
-            )
+            conn.execute(f"insert into public.handoffs ({columns}) values ({placeholders})", packet)
+    except psycopg.errors.IntegrityError:
+        return False
+    return True
+
+
+
+@pytest.mark.parametrize("chat_id", HANDOFF_IDS)
+def test_every_handoff_chat_saves_full_packet(conn, chat_id):
+    assert _handoff_accepted(conn, _packet(chat_id))
+
+
+def test_asked_for_person_accepted(conn):
+    packet = _packet("ECC-T-004") | {
+        "trigger_label": "asked_for_person",
+        "trigger_rule": "asked_for_person",
+        "triggering_message": "can I talk to a real person please",
+    }
+    assert _handoff_accepted(conn, packet)
+
+
+def test_handoff_mid_report_keeps_type_and_fields(conn):
+    packet = _packet("ECC-T-008") | {
+        "request_type": "pothole",
+        "fields_collected": Jsonb({"location": "Kessler Blvd"}),
+    }
+    assert _handoff_accepted(conn, packet)
+
+
+@pytest.mark.parametrize("column", [
+    "conversation_id", "transcript", "trigger_label", "trigger_rule",
+    "triggering_message", "classification_attempts", "fields_collected",
+])
+def test_handoff_missing_packet_item_rejected(conn, column):
+    assert not _handoff_accepted(conn, _packet("ECC-T-004") | {column: None})
+
+
+@pytest.mark.parametrize("override", [
+    {"trigger_label": "probably_fine"},
+    {"trigger_label": "weapon", "trigger_rule": "asked_for_person"},       # label from another rule
+    {"trigger_rule": "cannot_classify"},                                   # weapon label under cannot_classify
+    {"triggering_message": "   "},
+    {"conversation_id": ""},
+    {"transcript": Jsonb([])},
+    {"transcript": Jsonb("just a string")},
+    {"fields_collected": Jsonb([])},
+    {"classification_attempts": 3},
+    {"classification_attempts": -1},
+    {"request_type": "graffiti"},
+], ids=lambda o: ",".join(o))
+def test_bad_handoff_packet_rejected(conn, override):
+    assert not _handoff_accepted(conn, _packet("ECC-T-004") | override)
+
+
+@pytest.mark.parametrize("override", [
+    {"classification_attempts": 1},          # §4: only after the second failed attempt
+    {"request_type": "pothole"},             # a confirmed type can't be "could not classify"
+])
+def test_cannot_classify_rules(conn, override):
+    assert _handoff_accepted(conn, _packet("ECC-T-012"))
+    assert not _handoff_accepted(conn, _packet("ECC-T-012") | override)
+
+
+def test_upgrades_original_handoffs_table(server):
+    """The handoffs table already in Supabase was made by the first schema.sql."""
+    with psycopg.connect(server.get_uri(), autocommit=True) as admin:
+        admin.execute("drop database if exists upgrade_check")
+        admin.execute("create database upgrade_check")
+    uri = server.get_uri().rsplit("/", 1)[0] + "/upgrade_check"
+    with psycopg.connect(uri, autocommit=True) as conn:
+        conn.execute("""
+            create table public.handoffs (
+              id              bigint generated always as identity primary key,
+              conversation_id text        not null,
+              transcript      text        not null,
+              trigger_label   text        not null
+                check (trigger_label in ('weapon', 'injury', 'fire', 'danger',
+                                         'person_in_distress', 'unclassified_after_two_tries')),
+              created_at      timestamptz not null default now()
+            )""")
+        conn.execute((SQL_DIR / "schema.sql").read_text(encoding="utf-8"))
+        conn.execute((SQL_DIR / "schema.sql").read_text(encoding="utf-8"))  # and again: re-runnable
+        (transcript_type,) = conn.execute(
+            "select data_type from information_schema.columns "
+            "where table_name = 'handoffs' and column_name = 'transcript'"
+        ).fetchone()
+        assert transcript_type == "jsonb"
+        assert _handoff_accepted(conn, _packet("ECC-T-004") | {
+            "trigger_label": "asked_for_person", "trigger_rule": "asked_for_person"})
+        assert not _handoff_accepted(conn, _packet("ECC-T-004") | {"trigger_label": "probably_fine"})
 
 
 def test_rerunning_schema_keeps_rules(conn):

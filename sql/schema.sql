@@ -51,14 +51,61 @@ alter table public.requests add constraint requests_fields_match_type check (
       and vehicle_description is null and license_plate is null and blocking_driveway is null)
 );
 
+-- One row per handoff: the packet the dispatcher receives (criteria §7,
+-- docs/handoff_criteria.md). created_at is the handoff time.
 create table if not exists public.handoffs (
-  id              bigint generated always as identity primary key,
-  conversation_id text        not null,
-  transcript      text        not null,
-  trigger_label   text        not null
-    check (trigger_label in ('weapon', 'injury', 'fire', 'danger',
-                             'person_in_distress', 'unclassified_after_two_tries')),
-  created_at      timestamptz not null default now()
+  id                      bigint generated always as identity primary key,
+  conversation_id         text        not null,
+  transcript              jsonb       not null,
+  trigger_label           text        not null,
+  created_at              timestamptz not null default now()
+);
+
+-- Upgrade a handoffs table created by an earlier version of this file, which
+-- stored the transcript as plain text and had only the columns above.
+-- The new NOT NULL columns can only be added while the table is empty.
+do $$
+begin
+  if (select data_type from information_schema.columns
+      where table_schema = 'public' and table_name = 'handoffs' and column_name = 'transcript') = 'text' then
+    alter table public.handoffs alter column transcript type jsonb using to_jsonb(transcript);
+  end if;
+end $$;
+
+alter table public.handoffs
+  -- which §7 rule applied; trigger_label says which category within it
+  add column if not exists trigger_rule            text    not null,
+  -- the exact resident message that met the trigger
+  add column if not exists triggering_message      text    not null,
+  -- failed classification attempts so far (§4: never more than 2)
+  add column if not exists classification_attempts integer not null,
+  -- the confirmed report type; null when none was confirmed
+  add column if not exists request_type            text,
+  -- details gathered before the handoff, e.g. {"location": ..., "callback_phone": ...}
+  add column if not exists fields_collected        jsonb   not null;
+
+alter table public.handoffs drop constraint if exists handoffs_trigger_label_check;
+alter table public.handoffs drop constraint if exists handoffs_packet_check;
+alter table public.handoffs add constraint handoffs_packet_check check (
+  btrim(conversation_id) <> ''
+  and btrim(triggering_message) <> ''
+  -- every resident and chat message up to the handoff: [{"role", "text", "sent_at"}, ...]
+  and jsonb_typeof(transcript) = 'array' and jsonb_array_length(transcript) > 0
+  and jsonb_typeof(fields_collected) = 'object'
+  and classification_attempts between 0 and 2
+  and (request_type is null
+       or request_type in ('noise_complaint', 'illegally_parked_vehicle', 'pothole'))
+  -- the label must belong to the rule (docs/agent_spec.md §1)
+  and (
+    (trigger_rule = 'emergency_language'
+      and trigger_label in ('danger', 'injury', 'fire', 'weapon', 'person_in_distress'))
+    or
+    (trigger_rule = 'asked_for_person' and trigger_label = 'asked_for_person')
+    or
+    -- §4: hand off only after the second failed attempt, and no type was confirmed
+    (trigger_rule = 'cannot_classify' and trigger_label = 'unclassified_after_two_tries'
+      and classification_attempts = 2 and request_type is null)
+  )
 );
 
 -- Supabase exposes public tables through its API; lock them down.

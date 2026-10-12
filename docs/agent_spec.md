@@ -4,8 +4,9 @@ The rule book for the agent, written before any agent code. The agent is built
 straight from this document, so every handoff rule here is meant to be exact.
 
 Sources:
-- **Criteria** — *ECC Non-Emergency Chat Handoff Criteria* (D. Harlow, adopted
-  2024-08-19). Section numbers below (§2, §6 …) refer to it. It is binding.
+- **Criteria** — [*ECC Non-Emergency Chat Handoff Criteria*](handoff_criteria.md)
+  (D. Harlow, adopted 2024-08-19). Section numbers below (§2, §6 …) refer to
+  it. It is binding.
 - **Test set** — `data/palantir_ecc_intake_test_set_40_chats.csv`. Chat IDs
   below (ECC-T-008 …) are real chats from it.
 - **Models** — `src/ecc_intake_schema/models.py` (stage one).
@@ -253,7 +254,7 @@ re-ask ends the turn, so this loop waits on the resident; it cannot spin.
 
 ```
 save → END                 : insert succeeded (status = "saved")
-save → handoff             : insert failed twice   — PROPOSED, see §4 open question 2
+save → handoff             : insert failed twice   — PROPOSED, see §5 open question 1
 handoff → END              : always (status = "handed_off")
 ```
 
@@ -326,24 +327,35 @@ reads one of these.
 
 ---
 
-## 4. Gaps to close before the build
+## 4. Handoff packet storage
 
-Things the criteria require that the current code and tables don't support yet.
-These are flagged, not decided.
+`sql/schema.sql` stores the full §7 packet in `handoffs`, one column per item:
 
-1. **`handoffs` table vs the §7 packet.** `sql/schema.sql` stores only
-   `conversation_id`, `transcript`, `trigger_label`. §7 also requires:
-   trigger rule, triggering message, classification attempts, report type,
-   fields collected, handoff time (`created_at` covers this), and a transcript
-   with both resident and chat messages. The table needs `trigger_rule`,
-   `triggering_message`, `classification_attempts`, `request_type` and a
-   `fields_collected jsonb` column, and its `trigger_label` check must accept
-   `asked_for_person`.
-2. **Save failure (open question for dispatch).** The criteria don't say what
+| §7 item | Column | Database rule |
+|---|---|---|
+| Chat ID | `conversation_id` | not blank |
+| Trigger reason | `trigger_rule` + `trigger_label` | the label must belong to the rule (§1 table); `asked_for_person` accepted |
+| Triggering message | `triggering_message` | not blank |
+| Transcript | `transcript` (jsonb) | non-empty array of `{role, text, sent_at}`, resident and chat messages |
+| Classification attempts | `classification_attempts` | 0–2; must be 2 for `cannot_classify` |
+| Report type | `request_type` | one of the three types, or null if none confirmed (must be null for `cannot_classify`) |
+| Fields collected | `fields_collected` (jsonb) | an object, `{}` if nothing was gathered |
+| Handoff time | `created_at` | set by the database |
+
+Every column is NOT NULL except `request_type`. Re-running `schema.sql`
+upgrades the original `handoffs` table in place (text transcript → jsonb, new
+columns added) while it is still empty. `tests/test_schema_sql.py` checks all
+of this against a real Postgres, including the upgrade.
+
+## 5. Open questions for dispatch
+
+Things the criteria don't decide. Flagged here, not built.
+
+1. **Save failure.** The criteria don't say what
    happens if Supabase rejects or can't store a finished report. Proposed:
    retry once, then hand off so a human gets the report. That would need a
    label the dispatcher recognises (e.g. `save_failed`) — needs a ruling from
    the floor before it's built.
-3. **Repeated bad field answers (open question for dispatch).** The criteria
+2. **Repeated bad field answers.** The criteria
    have no limit on re-asking for a malformed field. As specified, the chat
    keeps re-asking. If the floor wants a cap, it needs a rule and a label.
