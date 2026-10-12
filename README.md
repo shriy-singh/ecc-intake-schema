@@ -5,6 +5,14 @@ agent saves three kinds of routine report (noise complaint, illegally parked
 vehicle, pothole) and hands everything else — any sign of danger, or a chat it
 can't understand — to a dispatcher.
 
+## Agent spec
+
+[`docs/agent_spec.md`](docs/agent_spec.md) is the rule book for the agent,
+written before any agent code: the seven handoff trigger classes from the ECC
+handoff criteria (with must-catch and must-not-catch phrases), the
+safety → classify → collect → validate → save / handoff flow as explicit
+edges, the state fields each edge reads, and the gaps to close before the build.
+
 ## Loader result
 
 The loader groups the 40-chat test set by `chat_id`, counts routine vs handoff
