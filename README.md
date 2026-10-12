@@ -128,3 +128,21 @@ project, shows all three tables exist and `test_chats` holds the full test set �
 | test_chats handoff chats | 10 |
 
 ![verify_tables.sql results in Supabase](docs/supabase_tables.webp)
+
+### `handoffs` upgraded to the full handoff packet
+
+The updated `sql/schema.sql` was re-run in the same project to upgrade the
+existing (empty) `handoffs` table:
+
+![schema.sql re-run upgrading handoffs in Supabase](docs/supabase_handoffs_upgrade_run.webp)
+
+[`sql/verify_handoffs_columns.sql`](sql/verify_handoffs_columns.sql) then
+returned 10 columns. The screenshot shows the six packet columns added or
+checked by the upgrade — `trigger_rule`, `triggering_message`,
+`classification_attempts`, `fields_collected` (jsonb) and `created_at` are
+NOT NULL, and `request_type` is the only nullable column. The first four rows
+(`id`, `conversation_id`, `transcript`, `trigger_label`) are scrolled out of
+view, so the `transcript` → jsonb change is covered by the local Postgres
+upgrade test rather than this screenshot.
+
+![handoffs columns in Supabase](docs/supabase_handoffs_columns.webp)
