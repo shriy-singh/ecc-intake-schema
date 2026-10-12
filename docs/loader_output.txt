@@ -1,0 +1,12 @@
+$ python load_test_set.py "ECC Non-Emergency Intake Test Set (40 Labeled Chats).csv"
+Loaded 80 rows -> 40 chats
+  routine: 30
+  handoff: 10
+
+Routine chats valid against their model: 30/30
+  noise_complaint: 10
+  illegally_parked_vehicle: 10
+  pothole: 10
+
+All chats loaded cleanly.
+(exit code 0)
