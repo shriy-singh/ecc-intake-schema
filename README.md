@@ -89,6 +89,15 @@ CHECK pass when it evaluates to NULL, and `btrim(NULL) <> ''` is NULL, so a
 noise complaint with no `noise_source` (likewise `vehicle_description`,
 `pothole_size`) saved cleanly. The checks now use `coalesce(btrim(x), '') <> ''`.
 
-### Tables in the Supabase project
+### Run in the Supabase project
 
-![requests, handoffs and test_chats tables in Supabase](docs/supabase_tables.png)
+Both files were run in the project's SQL Editor (`main`, production) and
+completed with "Success. No rows returned".
+
+`sql/schema.sql` — creates `requests` (with the coalesce-fixed check) and `handoffs`:
+
+![schema.sql run in the Supabase SQL Editor](docs/supabase_schema_sql_run.webp)
+
+`sql/test_chats.sql` — creates `test_chats` and inserts the 80 test-set rows:
+
+![test_chats.sql run in the Supabase SQL Editor](docs/supabase_test_chats_sql_run.webp)
