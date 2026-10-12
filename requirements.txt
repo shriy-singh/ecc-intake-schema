@@ -1,2 +1,5 @@
 pydantic>=2.6
 pytest>=8
+# real-Postgres tests for sql/ (skipped if missing)
+pgserver>=0.1
+psycopg[binary]>=3.1

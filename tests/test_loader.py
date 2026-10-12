@@ -27,6 +27,7 @@ def test_main_reports_counts_and_passes(capsys):
     assert "routine: 30" in out
     assert "handoff: 10" in out
     assert "Routine chats valid against their model: 30/30" in out
+    assert "Failures: 0" in out
 
 
 def _write_variant(tmp_path: Path, edit) -> Path:
@@ -51,6 +52,7 @@ def test_main_fails_on_missing_required_field(tmp_path, capsys):
     assert main([str(_write_variant(tmp_path, blank_phone))]) == 1
     out = capsys.readouterr().out
     assert "29/30" in out
+    assert "Failures: 1" in out
     assert "FAIL ECC-T-001 (noise_complaint): callback_phone" in out
 
 

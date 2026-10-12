@@ -8,5 +8,5 @@ Routine chats valid against their model: 30/30
   illegally_parked_vehicle: 10
   pothole: 10
 
-All chats loaded cleanly.
+Failures: 0
 (exit code 0)

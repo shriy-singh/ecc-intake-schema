@@ -119,13 +119,10 @@ def main(argv: list[str] | None = None) -> int:
     for request_type in ROUTINE_REQUEST_MODELS:
         print(f"  {request_type}: {valid_by_type[request_type]}")
 
-    if failures:
-        print(f"\n{len(failures)} problem(s):")
-        for failure in failures:
-            print(f"  FAIL {failure}")
-        return 1
-    print("\nAll chats loaded cleanly.")
-    return 0
+    print(f"\nFailures: {len(failures)}")
+    for failure in failures:
+        print(f"  FAIL {failure}")
+    return 1 if failures else 0
 
 
 if __name__ == "__main__":

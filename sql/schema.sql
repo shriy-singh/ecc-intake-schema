@@ -23,28 +23,32 @@ create table if not exists public.requests (
   pothole_size         text,
   hazard_to_traffic    boolean,
 
-  created_at           timestamptz not null default now(),
+  created_at           timestamptz not null default now()
+);
 
-  -- each type must fill its own fields and leave the other types' fields empty
-  constraint requests_fields_match_type check (
+-- Each type must fill its own fields and leave the other types' fields empty.
+-- A CHECK passes when it evaluates to NULL, and btrim(NULL) <> '' is NULL, so
+-- every text test is wrapped in coalesce(..., '') to make a missing value fail.
+-- Dropped and re-added so re-running this file also fixes an existing table.
+alter table public.requests drop constraint if exists requests_fields_match_type;
+alter table public.requests add constraint requests_fields_match_type check (
     (request_type = 'noise_complaint'
-      and btrim(noise_source) <> ''
+      and coalesce(btrim(noise_source), '') <> ''
       and vehicle_description is null and license_plate is null and blocking_driveway is null
       and pothole_size is null and hazard_to_traffic is null)
     or
     (request_type = 'illegally_parked_vehicle'
-      and btrim(vehicle_description) <> ''
+      and coalesce(btrim(vehicle_description), '') <> ''
       and blocking_driveway is not null
       and (license_plate is null or btrim(license_plate) <> '')
       and noise_source is null
       and pothole_size is null and hazard_to_traffic is null)
     or
     (request_type = 'pothole'
-      and btrim(pothole_size) <> ''
+      and coalesce(btrim(pothole_size), '') <> ''
       and hazard_to_traffic is not null
       and noise_source is null
       and vehicle_description is null and license_plate is null and blocking_driveway is null)
-  )
 );
 
 create table if not exists public.handoffs (
